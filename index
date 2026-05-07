@@ -1,1 +1,1645 @@
+import React, { useState } from 'react';
+import { BarChart3, Waves, Triangle } from 'lucide-react';
 
+// Reference material properties (from spreadsheet)
+const REFERENCE_MATERIALS = {
+  softwoods: {
+    specificGravity: 0.4,
+    EL: 10.733,
+    ER: 0.723,
+    ET: 0.539,
+    GLR: 0.774,
+    GRT: 0.039,
+    GTL: 0.743
+  },
+  hardwoods: {
+    specificGravity: 0.4,
+    EL: 8.917,
+    ER: 0.933,
+    ET: 0.421,
+    GLR: 0.519,
+    GRT: 0.166,
+    GTL: 0.649
+  }
+};
+
+const BeamTest = () => {
+  const [inputs, setInputs] = useState({
+    length: 248,
+    width: 56,
+    thickness: 6,
+    mass: 33.3,
+    freqFlexural: 519,
+    freqTorsion: 300
+  });
+
+  const [results, setResults] = useState(null);
+  const [showGuide, setShowGuide] = useState(false);
+
+  const calculate = () => {
+    const L = inputs.length / 1000; // Convert to meters
+    const b = inputs.width / 1000;
+    const h = inputs.thickness / 1000;
+    const m = inputs.mass / 1000; // Convert to kg
+    const f_flex = inputs.freqFlexural;
+    const f_tors = inputs.freqTorsion;
+
+    // Constants
+    const nuxy = 0.3;
+    const nuyx = 0.03;
+    const knL = 4.73; // Free beam constant
+
+    // Calculated values
+    const volume = L * b * h;
+    const density = m / volume;
+    const I = (b * h * h * h) / 12;
+    const J = (b * h * h * h) * (1/3 - 0.21 * (h/b) * (1 - (h*h*h*h)/(12*b*b*b*b)));
+
+    // Rigidity calculations
+    const E1 = (f_flex * f_flex * nuxy * b * h * L * L * L * L * 4 * Math.PI * Math.PI) / (knL * 500.4) / 1000000000;
+    const specificRigidity = E1 / (density / 1000);
+    const G12 = ((4 * L * L * f_tors * f_tors * density * J) / I) / 1000000000;
+
+    // Wave celerities
+    const celerityTC = Math.sqrt((E1 * 1000000000) / (density * (1 - 0.3 * 0.3)));
+    const celerityTorsion = Math.sqrt((G12 * 1000000000) / density);
+    const celerityFlexural = (Math.pow((E1 * 1000000000 * I) / (density * (h * b)), 0.25)) * Math.sqrt(2 * Math.PI * f_flex);
+    const wavelengthFlexural = celerityFlexural / f_flex;
+
+    // Predicted frequencies using Guitard model
+    const sg = density / 1000;
+    
+    // Softwoods predictions
+    const EL_soft = 13 + 45 * (sg - 0.45);
+    const GLR_soft = 14.2 + 21.1 * (sg - 0.65);
+    const specificRigidity_soft = EL_soft / sg;
+    const freq_flex_soft = Math.sqrt((specificRigidity_soft * 1000 * I * Math.PI * Math.PI * knL * knL) / (L * L * L * L));
+    const freq_tors_soft = Math.sqrt((GLR_soft * 1000 * I) / (density * L * L * J));
+
+    // Hardwoods predictions
+    const EL_hard = 8.5 + 21.1 * (sg - 0.65);
+    const GLR_hard = 0.52 * EL_hard;
+    const specificRigidity_hard = EL_hard / sg;
+    const freq_flex_hard = Math.sqrt((specificRigidity_hard * 1000 * I * Math.PI * Math.PI * knL * knL) / (L * L * L * L));
+    const freq_tors_hard = Math.sqrt((GLR_hard * 1000 * I) / (density * L * L * J));
+
+    setResults({
+      density,
+      E1,
+      specificRigidity,
+      G12,
+      celerityTC,
+      celerityTorsion,
+      predictions: {
+        softwoods: {
+          freqFlexural: freq_flex_soft,
+          freqTorsion: freq_tors_soft,
+          diffFlexural: ((f_flex - freq_flex_soft) / freq_flex_soft * 100),
+          diffTorsion: ((f_tors - freq_tors_soft) / freq_tors_soft * 100)
+        },
+        hardwoods: {
+          freqFlexural: freq_flex_hard,
+          freqTorsion: freq_tors_hard,
+          diffFlexural: ((f_flex - freq_flex_hard) / freq_flex_hard * 100),
+          diffTorsion: ((f_tors - freq_tors_hard) / freq_tors_hard * 100)
+        }
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Measurement Guide */}
+      <div className="measurement-guide">
+        <button 
+          className="guide-toggle"
+          onClick={() => setShowGuide(!showGuide)}
+        >
+          <span>📐 How to Measure These Frequencies</span>
+          <span className="toggle-icon">{showGuide ? '▼' : '▶'}</span>
+        </button>
+        
+        {showGuide && (
+          <div className="guide-content">
+            <div className="guide-section">
+              <h4>Setup</h4>
+              <p>Support the beam at the <strong>nodal points</strong> (22% from each end) using soft foam or strings. The beam must be free to vibrate.</p>
+            </div>
+
+            <div className="guide-diagrams">
+              {/* Flexural Mode Diagram */}
+              <div className="diagram-card">
+                <h5>Flexural Mode</h5>
+                <svg viewBox="0 0 300 120" className="mode-diagram">
+                  {/* Beam */}
+                  <rect x="30" y="50" width="240" height="20" fill="#d4c4a8" stroke="#8b7355" strokeWidth="2" rx="2"/>
+                  {/* Support points */}
+                  <circle cx="83" cy="80" r="6" fill="#6b5a45"/>
+                  <circle cx="217" cy="80" r="6" fill="#6b5a45"/>
+                  <text x="83" y="100" fontSize="10" textAnchor="middle" fill="#5a4a35">Support</text>
+                  <text x="217" y="100" fontSize="10" textAnchor="middle" fill="#5a4a35">Support</text>
+                  {/* Tap point */}
+                  <path d="M 150 20 L 150 45" stroke="#c44" strokeWidth="3" markerEnd="url(#arrowred)"/>
+                  <text x="150" y="15" fontSize="12" fontWeight="bold" textAnchor="middle" fill="#c44">TAP HERE</text>
+                  {/* Vibration curve */}
+                  <path d="M 30 60 Q 90 30, 150 60 T 270 60" fill="none" stroke="#4a90e2" strokeWidth="2" strokeDasharray="4,4" opacity="0.6"/>
+                  <defs>
+                    <marker id="arrowred" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto" markerUnits="strokeWidth">
+                      <path d="M0,0 L0,6 L9,3 z" fill="#c44" />
+                    </marker>
+                  </defs>
+                </svg>
+                <div className="diagram-notes">
+                  <p><strong>What to do:</strong> Tap at center, support at 22% from ends</p>
+                  <p><strong>Expected range:</strong> 300-700 Hz (softwood), 250-600 Hz (hardwood)</p>
+                  <p><strong>In Audacity:</strong> Look for the <em>lowest strong peak</em></p>
+                </div>
+              </div>
+
+              {/* Torsion Mode Diagram */}
+              <div className="diagram-card">
+                <h5>Torsion Mode</h5>
+                <svg viewBox="0 0 300 120" className="mode-diagram">
+                  {/* Beam */}
+                  <rect x="30" y="50" width="240" height="20" fill="#d4c4a8" stroke="#8b7355" strokeWidth="2" rx="2"/>
+                  {/* Support point (center) */}
+                  <circle cx="150" cy="80" r="6" fill="#6b5a45"/>
+                  <text x="150" y="100" fontSize="10" textAnchor="middle" fill="#5a4a35">Support center</text>
+                  {/* Tap point */}
+                  <path d="M 260 30 L 245 45" stroke="#c44" strokeWidth="3" markerEnd="url(#arrowred2)"/>
+                  <text x="265" y="25" fontSize="12" fontWeight="bold" textAnchor="middle" fill="#c44">TAP</text>
+                  <text x="265" y="38" fontSize="10" textAnchor="middle" fill="#c44">corner</text>
+                  {/* Twist indication */}
+                  <path d="M 30 45 L 30 75" stroke="#4a90e2" strokeWidth="2" opacity="0.6"/>
+                  <path d="M 270 55 L 270 65" stroke="#4a90e2" strokeWidth="2" opacity="0.6"/>
+                  <text x="20" y="60" fontSize="10" fill="#4a90e2">↻</text>
+                  <defs>
+                    <marker id="arrowred2" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto" markerUnits="strokeWidth">
+                      <path d="M0,0 L0,6 L9,3 z" fill="#c44" />
+                    </marker>
+                  </defs>
+                </svg>
+                <div className="diagram-notes">
+                  <p><strong>What to do:</strong> Tap at corner/edge, beam should twist</p>
+                  <p><strong>Expected range:</strong> 200-500 Hz (varies with shear modulus)</p>
+                  <p><strong>In Audacity:</strong> Look for a <em>higher peak</em> than flexural</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="guide-tips">
+              <p><strong>💡 Tips:</strong></p>
+              <ul>
+                <li>Use a light tap with a pencil or small stick - don't hit too hard</li>
+                <li>Record 2-3 seconds in Audacity, then Analyze → Plot Spectrum</li>
+                <li>Look for clear, distinct peaks - ignore small bumps</li>
+                <li>If you don't see a peak, try tapping at different locations</li>
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Inputs */}
+      <div className="input-section">
+        <h3 className="section-title">Sample Dimensions</h3>
+        <div className="input-grid">
+          <div className="input-group">
+            <label>Length (mm)</label>
+            <input
+              type="number"
+              value={inputs.length}
+              onChange={(e) => setInputs({...inputs, length: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="input-group">
+            <label>Width (mm)</label>
+            <input
+              type="number"
+              value={inputs.width}
+              onChange={(e) => setInputs({...inputs, width: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="input-group">
+            <label>Thickness (mm)</label>
+            <input
+              type="number"
+              value={inputs.thickness}
+              onChange={(e) => setInputs({...inputs, thickness: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="input-group">
+            <label>Mass (g)</label>
+            <input
+              type="number"
+              value={inputs.mass}
+              onChange={(e) => setInputs({...inputs, mass: parseFloat(e.target.value)})}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="input-section">
+        <h3 className="section-title">Measured Frequencies</h3>
+        <div className="input-grid">
+          <div className="input-group">
+            <label>Flexural Mode (Hz)</label>
+            <input
+              type="number"
+              value={inputs.freqFlexural}
+              onChange={(e) => setInputs({...inputs, freqFlexural: parseFloat(e.target.value)})}
+            />
+            <span className="hint">Tap along length, free-free beam</span>
+          </div>
+          <div className="input-group">
+            <label>Torsion Mode (Hz)</label>
+            <input
+              type="number"
+              value={inputs.freqTorsion}
+              onChange={(e) => setInputs({...inputs, freqTorsion: parseFloat(e.target.value)})}
+            />
+            <span className="hint">Twist mode, free-free beam</span>
+          </div>
+        </div>
+      </div>
+
+      <button className="calculate-btn" onClick={calculate}>
+        Calculate Properties
+      </button>
+
+      {/* Results */}
+      {results && (
+        <div className="results-section">
+          <h3 className="section-title">Material Properties</h3>
+          
+          <div className="property-cards">
+            <div className="property-card highlight">
+              <div className="property-label">Specific Rigidity</div>
+              <div className="property-value">{results.specificRigidity.toFixed(1)}</div>
+              <div className="property-unit">GPa·m³/kg</div>
+              <div className="property-note">Key metric for instrument making</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">Young's Modulus (E₁)</div>
+              <div className="property-value">{results.E1.toFixed(2)}</div>
+              <div className="property-unit">GPa</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">Shear Modulus (G₁₂)</div>
+              <div className="property-value">{results.G12.toFixed(2)}</div>
+              <div className="property-unit">GPa</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">Density</div>
+              <div className="property-value">{results.density.toFixed(0)}</div>
+              <div className="property-unit">kg/m³</div>
+            </div>
+          </div>
+
+          <h3 className="section-title" style={{marginTop: '2rem'}}>How Does Your Wood Compare?</h3>
+          
+          <div className="comparison-grid">
+            {/* Softwoods */}
+            <div className="comparison-card">
+              <h4>If it were typical Softwood (Spruce)</h4>
+              <div className="freq-comparison">
+                <div className="freq-row">
+                  <span className="freq-label">Flexural frequency:</span>
+                  <span className="freq-predicted">{results.predictions.softwoods.freqFlexural.toFixed(0)} Hz</span>
+                  <span className="freq-measured">(you measured: {inputs.freqFlexural} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.softwoods.diffFlexural) < 5 ? 'good' : Math.abs(results.predictions.softwoods.diffFlexural) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.softwoods.diffFlexural > 0 ? '+' : ''}{results.predictions.softwoods.diffFlexural.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="freq-row">
+                  <span className="freq-label">Torsion frequency:</span>
+                  <span className="freq-predicted">{results.predictions.softwoods.freqTorsion.toFixed(0)} Hz</span>
+                  <span className="freq-measured">(you measured: {inputs.freqTorsion} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.softwoods.diffTorsion) < 5 ? 'good' : Math.abs(results.predictions.softwoods.diffTorsion) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.softwoods.diffTorsion > 0 ? '+' : ''}{results.predictions.softwoods.diffTorsion.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Hardwoods */}
+            <div className="comparison-card">
+              <h4>If it were typical Hardwood (Maple)</h4>
+              <div className="freq-comparison">
+                <div className="freq-row">
+                  <span className="freq-label">Flexural frequency:</span>
+                  <span className="freq-predicted">{results.predictions.hardwoods.freqFlexural.toFixed(0)} Hz</span>
+                  <span className="freq-measured">(you measured: {inputs.freqFlexural} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.hardwoods.diffFlexural) < 5 ? 'good' : Math.abs(results.predictions.hardwoods.diffFlexural) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.hardwoods.diffFlexural > 0 ? '+' : ''}{results.predictions.hardwoods.diffFlexural.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="freq-row">
+                  <span className="freq-label">Torsion frequency:</span>
+                  <span className="freq-predicted">{results.predictions.hardwoods.freqTorsion.toFixed(0)} Hz</span>
+                  <span className="freq-measured">(you measured: {inputs.freqTorsion} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.hardwoods.diffTorsion) < 5 ? 'good' : Math.abs(results.predictions.hardwoods.diffTorsion) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.hardwoods.diffTorsion > 0 ? '+' : ''}{results.predictions.hardwoods.diffTorsion.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const PlateTest = () => {
+  const [inputs, setInputs] = useState({
+    length: 400,
+    width: 124,
+    thickness: 2.82,
+    mass: 59,
+    freqTorsion: 60,
+    freqFlexLength: 90,
+    freqFlexWidth: 144
+  });
+
+  const [results, setResults] = useState(null);
+  const [showGuide, setShowGuide] = useState(false);
+
+  const calculate = () => {
+    const L = inputs.length / 1000;
+    const W = inputs.width / 1000;
+    const h = inputs.thickness / 1000;
+    const m = inputs.mass / 1000;
+    const f_tors = inputs.freqTorsion;
+    const f_flex_L = inputs.freqFlexLength;
+    const f_flex_W = inputs.freqFlexWidth;
+
+    // Constants
+    const nuxy = 0.3;
+    const nuyx = 0.03;
+
+    // Calculated values
+    const volume = L * W * h;
+    const density = m / volume;
+
+    // Rigidity calculations (McIntyre-Woodhouse method)
+    const D2 = 0.0789 * f_flex_L * f_flex_L * density * L * L * L * L / (h * h);
+    const D1 = 0.0789 * f_flex_W * f_flex_W * density * W * W * W * W / (h * h);
+    const D3 = 0.4053 * f_tors * f_tors * density * L * L * W * W / (h * h);
+
+    const E2 = D2 * 12 * (1 - nuxy * nuyx) * 0.000000001;
+    const E1 = D1 * 12 * (1 - nuxy * nuyx) * 0.000000001;
+    const G12 = D3 * 3 * 0.000000001;
+
+    const specificRigidity1 = E1 / (density / 1000);
+    const specificRigidity2 = E2 / (density / 1000);
+    const ratioAnisotropy = E1 / E2;
+
+    // Wave celerities
+    const C2 = Math.sqrt((E2 * 1000000000 * (1 - nuxy)) / (density * (1 + nuxy) * (1 - 2 * nuxy)));
+    const C1 = Math.sqrt((E1 * 1000000000 * (1 - nuxy)) / (density * (1 + nuxy) * (1 - 2 * nuxy)));
+    const shearWaves = 0.58 * Math.sqrt(L * L + W * W) * f_tors;
+
+    // Predicted frequencies using reference materials
+    const sg = density / 1000;
+
+    // Softwoods
+    const EL_soft = 11.73164;
+    const ER_soft = 0.844978;
+    const GLR_soft = 0.802795;
+    const D1_soft = (EL_soft * 1000000000 * h * h * h) / (12 * (1 - nuxy * nuyx));
+    const D2_soft = (ER_soft * 1000000000 * h * h * h) / (12 * (1 - nuxy * nuyx));
+    const D3_soft = (GLR_soft * 1000000000 * h * h * h) / 3;
+    const freq_flex_L_soft = Math.sqrt((0.0789 * D1_soft) / (density * W * W * W * W / (h * h)));
+    const freq_flex_W_soft = Math.sqrt((0.0789 * D2_soft) / (density * L * L * L * L / (h * h)));
+    const freq_tors_soft = Math.sqrt((0.4053 * D3_soft) / (density * L * L * W * W / (h * h)));
+
+    // Hardwoods
+    const EL_hard = 9.38528;
+    const ER_hard = 1.029674;
+    const GLR_hard = 0.564065;
+    const D1_hard = (EL_hard * 1000000000 * h * h * h) / (12 * (1 - nuxy * nuyx));
+    const D2_hard = (ER_hard * 1000000000 * h * h * h) / (12 * (1 - nuxy * nuyx));
+    const D3_hard = (GLR_hard * 1000000000 * h * h * h) / 3;
+    const freq_flex_L_hard = Math.sqrt((0.0789 * D1_hard) / (density * W * W * W * W / (h * h)));
+    const freq_flex_W_hard = Math.sqrt((0.0789 * D2_hard) / (density * L * L * L * L / (h * h)));
+    const freq_tors_hard = Math.sqrt((0.4053 * D3_hard) / (density * L * L * W * W / (h * h)));
+
+    setResults({
+      density,
+      E1,
+      E2,
+      G12,
+      specificRigidity1,
+      specificRigidity2,
+      ratioAnisotropy,
+      C1,
+      C2,
+      predictions: {
+        softwoods: {
+          freqFlexLength: freq_flex_L_soft,
+          freqFlexWidth: freq_flex_W_soft,
+          freqTorsion: freq_tors_soft,
+          diffFlexLength: ((f_flex_L - freq_flex_L_soft) / freq_flex_L_soft * 100),
+          diffFlexWidth: ((f_flex_W - freq_flex_W_soft) / freq_flex_W_soft * 100),
+          diffTorsion: ((f_tors - freq_tors_soft) / freq_tors_soft * 100)
+        },
+        hardwoods: {
+          freqFlexLength: freq_flex_L_hard,
+          freqFlexWidth: freq_flex_W_hard,
+          freqTorsion: freq_tors_hard,
+          diffFlexLength: ((f_flex_L - freq_flex_L_hard) / freq_flex_L_hard * 100),
+          diffFlexWidth: ((f_flex_W - freq_flex_W_hard) / freq_flex_W_hard * 100),
+          diffTorsion: ((f_tors - freq_tors_hard) / freq_tors_hard * 100)
+        }
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Measurement Guide */}
+      <div className="measurement-guide">
+        <button 
+          className="guide-toggle"
+          onClick={() => setShowGuide(!showGuide)}
+        >
+          <span>📐 How to Measure These Frequencies</span>
+          <span className="toggle-icon">{showGuide ? '▼' : '▶'}</span>
+        </button>
+        
+        {showGuide && (
+          <div className="guide-content">
+            <div className="guide-section">
+              <h4>Setup</h4>
+              <p>For each mode, you'll support the plate differently. Use soft foam or strings at the nodal lines. The plate must be completely free to vibrate.</p>
+            </div>
+
+            <div className="guide-diagrams">
+              {/* Torsion Mode */}
+              <div className="diagram-card">
+                <h5>Torsion Mode (Twisting)</h5>
+                <svg viewBox="0 0 300 160" className="mode-diagram">
+                  {/* Plate */}
+                  <rect x="60" y="50" width="180" height="70" fill="#d4c4a8" stroke="#8b7355" strokeWidth="2" rx="2"/>
+                  {/* Support center */}
+                  <circle cx="150" cy="85" r="6" fill="#6b5a45"/>
+                  <text x="150" y="105" fontSize="10" textAnchor="middle" fill="#5a4a35">Support center</text>
+                  {/* Tap corner */}
+                  <path d="M 235 35 L 225 50" stroke="#c44" strokeWidth="3" markerEnd="url(#arrowplate1)"/>
+                  <text x="245" y="30" fontSize="12" fontWeight="bold" fill="#c44">TAP</text>
+                  <text x="245" y="42" fontSize="9" fill="#c44">corner</text>
+                  {/* Diagonal twist lines */}
+                  <path d="M 65 55 L 235 115" stroke="#4a90e2" strokeWidth="1.5" strokeDasharray="3,3" opacity="0.5"/>
+                  <path d="M 235 55 L 65 115" stroke="#4a90e2" strokeWidth="1.5" strokeDasharray="3,3" opacity="0.5"/>
+                  <defs>
+                    <marker id="arrowplate1" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto">
+                      <path d="M0,0 L0,6 L9,3 z" fill="#c44" />
+                    </marker>
+                  </defs>
+                </svg>
+                <div className="diagram-notes">
+                  <p><strong>What to do:</strong> Tap at corner, plate twists diagonally</p>
+                  <p><strong>Expected range:</strong> 50-150 Hz (usually the lowest mode)</p>
+                </div>
+              </div>
+
+              {/* Flexure Length */}
+              <div className="diagram-card">
+                <h5>Flexure Along Length</h5>
+                <svg viewBox="0 0 300 160" className="mode-diagram">
+                  {/* Plate */}
+                  <rect x="60" y="50" width="180" height="70" fill="#d4c4a8" stroke="#8b7355" strokeWidth="2" rx="2"/>
+                  {/* Support lines across width */}
+                  <line x1="60" y1="77" x2="240" y2="77" stroke="#6b5a45" strokeWidth="4"/>
+                  <line x1="60" y1="93" x2="240" y2="93" stroke="#6b5a45" strokeWidth="4"/>
+                  <text x="35" y="82" fontSize="10" fill="#5a4a35">Support</text>
+                  <text x="35" y="98" fontSize="10" fill="#5a4a35">lines</text>
+                  {/* Tap center */}
+                  <path d="M 150 20 L 150 45" stroke="#c44" strokeWidth="3" markerEnd="url(#arrowplate2)"/>
+                  <text x="150" y="15" fontSize="12" fontWeight="bold" textAnchor="middle" fill="#c44">TAP</text>
+                  {/* Bending curve */}
+                  <path d="M 60 85 Q 100 60, 150 85 T 240 85" fill="none" stroke="#4a90e2" strokeWidth="2" strokeDasharray="4,4" opacity="0.6"/>
+                  <defs>
+                    <marker id="arrowplate2" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto">
+                      <path d="M0,0 L0,6 L9,3 z" fill="#c44" />
+                    </marker>
+                  </defs>
+                </svg>
+                <div className="diagram-notes">
+                  <p><strong>What to do:</strong> Support across width, tap center</p>
+                  <p><strong>Expected range:</strong> 70-200 Hz (middle frequency)</p>
+                </div>
+              </div>
+
+              {/* Flexure Width */}
+              <div className="diagram-card">
+                <h5>Flexure Along Width</h5>
+                <svg viewBox="0 0 300 160" className="mode-diagram">
+                  {/* Plate */}
+                  <rect x="60" y="50" width="180" height="70" fill="#d4c4a8" stroke="#8b7355" strokeWidth="2" rx="2"/>
+                  {/* Support lines along length */}
+                  <line x1="100" y1="50" x2="100" y2="120" stroke="#6b5a45" strokeWidth="4"/>
+                  <line x1="200" y1="50" x2="200" y2="120" stroke="#6b5a45" strokeWidth="4"/>
+                  <text x="85" y="45" fontSize="10" fill="#5a4a35">Support</text>
+                  <text x="185" y="45" fontSize="10" fill="#5a4a35">Support</text>
+                  {/* Tap center */}
+                  <path d="M 150 20 L 150 45" stroke="#c44" strokeWidth="3" markerEnd="url(#arrowplate3)"/>
+                  <text x="150" y="15" fontSize="12" fontWeight="bold" textAnchor="middle" fill="#c44">TAP</text>
+                  {/* Bending curve */}
+                  <path d="M 150 50 Q 120 80, 150 85 T 150 120" fill="none" stroke="#4a90e2" strokeWidth="2" strokeDasharray="4,4" opacity="0.6"/>
+                  <defs>
+                    <marker id="arrowplate3" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto">
+                      <path d="M0,0 L0,6 L9,3 z" fill="#c44" />
+                    </marker>
+                  </defs>
+                </svg>
+                <div className="diagram-notes">
+                  <p><strong>What to do:</strong> Support along length, tap center</p>
+                  <p><strong>Expected range:</strong> 100-300 Hz (highest frequency)</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="guide-tips">
+              <p><strong>💡 Tips:</strong></p>
+              <ul>
+                <li>The three modes will appear as three distinct peaks in Audacity</li>
+                <li>Torsion is usually lowest, flexure-width is usually highest</li>
+                <li>If peaks overlap, try adjusting support positions slightly</li>
+                <li>Thin plates are more sensitive - use a very light tap</li>
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="input-section">
+        <h3 className="section-title">Plate Dimensions</h3>
+        <div className="input-grid">
+          <div className="input-group">
+            <label>Length (mm)</label>
+            <input
+              type="number"
+              value={inputs.length}
+              onChange={(e) => setInputs({...inputs, length: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="input-group">
+            <label>Width (mm)</label>
+            <input
+              type="number"
+              value={inputs.width}
+              onChange={(e) => setInputs({...inputs, width: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="input-group">
+            <label>Thickness (mm)</label>
+            <input
+              type="number"
+              value={inputs.thickness}
+              onChange={(e) => setInputs({...inputs, thickness: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="input-group">
+            <label>Mass (g)</label>
+            <input
+              type="number"
+              value={inputs.mass}
+              onChange={(e) => setInputs({...inputs, mass: parseFloat(e.target.value)})}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="input-section">
+        <h3 className="section-title">Measured Frequencies</h3>
+        <div className="input-grid">
+          <div className="input-group">
+            <label>Torsion Mode (Hz)</label>
+            <input
+              type="number"
+              value={inputs.freqTorsion}
+              onChange={(e) => setInputs({...inputs, freqTorsion: parseFloat(e.target.value)})}
+            />
+            <span className="hint">Twist mode, free-free plate</span>
+          </div>
+          <div className="input-group">
+            <label>Flexure Along Length (Hz)</label>
+            <input
+              type="number"
+              value={inputs.freqFlexLength}
+              onChange={(e) => setInputs({...inputs, freqFlexLength: parseFloat(e.target.value)})}
+            />
+            <span className="hint">Bending along longer dimension</span>
+          </div>
+          <div className="input-group">
+            <label>Flexure Along Width (Hz)</label>
+            <input
+              type="number"
+              value={inputs.freqFlexWidth}
+              onChange={(e) => setInputs({...inputs, freqFlexWidth: parseFloat(e.target.value)})}
+            />
+            <span className="hint">Bending along shorter dimension</span>
+          </div>
+        </div>
+      </div>
+
+      <button className="calculate-btn" onClick={calculate}>
+        Calculate Properties
+      </button>
+
+      {results && (
+        <div className="results-section">
+          <h3 className="section-title">Material Properties</h3>
+          
+          <div className="property-cards">
+            <div className="property-card highlight">
+              <div className="property-label">Specific Rigidity (Length)</div>
+              <div className="property-value">{results.specificRigidity1.toFixed(1)}</div>
+              <div className="property-unit">GPa·m³/kg</div>
+            </div>
+            
+            <div className="property-card highlight">
+              <div className="property-label">Specific Rigidity (Width)</div>
+              <div className="property-value">{results.specificRigidity2.toFixed(1)}</div>
+              <div className="property-unit">GPa·m³/kg</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">E Longitudinal</div>
+              <div className="property-value">{results.E1.toFixed(2)}</div>
+              <div className="property-unit">GPa</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">E Radial</div>
+              <div className="property-value">{results.E2.toFixed(2)}</div>
+              <div className="property-unit">GPa</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">Shear Modulus (G₁₂)</div>
+              <div className="property-value">{results.G12.toFixed(2)}</div>
+              <div className="property-unit">GPa</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">Anisotropy Ratio</div>
+              <div className="property-value">{results.ratioAnisotropy.toFixed(2)}</div>
+              <div className="property-unit">E₁/E₂</div>
+            </div>
+          </div>
+
+          <h3 className="section-title" style={{marginTop: '2rem'}}>How Does Your Wood Compare?</h3>
+          
+          <div className="comparison-grid">
+            <div className="comparison-card">
+              <h4>If it were typical Softwood</h4>
+              <div className="freq-comparison">
+                <div className="freq-row">
+                  <span className="freq-label">Torsion:</span>
+                  <span className="freq-predicted">{results.predictions.softwoods.freqTorsion.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqTorsion} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.softwoods.diffTorsion) < 5 ? 'good' : Math.abs(results.predictions.softwoods.diffTorsion) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.softwoods.diffTorsion > 0 ? '+' : ''}{results.predictions.softwoods.diffTorsion.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="freq-row">
+                  <span className="freq-label">Flex (Length):</span>
+                  <span className="freq-predicted">{results.predictions.softwoods.freqFlexLength.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqFlexLength} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.softwoods.diffFlexLength) < 5 ? 'good' : Math.abs(results.predictions.softwoods.diffFlexLength) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.softwoods.diffFlexLength > 0 ? '+' : ''}{results.predictions.softwoods.diffFlexLength.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="freq-row">
+                  <span className="freq-label">Flex (Width):</span>
+                  <span className="freq-predicted">{results.predictions.softwoods.freqFlexWidth.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqFlexWidth} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.softwoods.diffFlexWidth) < 5 ? 'good' : Math.abs(results.predictions.softwoods.diffFlexWidth) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.softwoods.diffFlexWidth > 0 ? '+' : ''}{results.predictions.softwoods.diffFlexWidth.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="comparison-card">
+              <h4>If it were typical Hardwood</h4>
+              <div className="freq-comparison">
+                <div className="freq-row">
+                  <span className="freq-label">Torsion:</span>
+                  <span className="freq-predicted">{results.predictions.hardwoods.freqTorsion.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqTorsion} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.hardwoods.diffTorsion) < 5 ? 'good' : Math.abs(results.predictions.hardwoods.diffTorsion) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.hardwoods.diffTorsion > 0 ? '+' : ''}{results.predictions.hardwoods.diffTorsion.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="freq-row">
+                  <span className="freq-label">Flex (Length):</span>
+                  <span className="freq-predicted">{results.predictions.hardwoods.freqFlexLength.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqFlexLength} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.hardwoods.diffFlexLength) < 5 ? 'good' : Math.abs(results.predictions.hardwoods.diffFlexLength) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.hardwoods.diffFlexLength > 0 ? '+' : ''}{results.predictions.hardwoods.diffFlexLength.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="freq-row">
+                  <span className="freq-label">Flex (Width):</span>
+                  <span className="freq-predicted">{results.predictions.hardwoods.freqFlexWidth.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqFlexWidth} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.hardwoods.diffFlexWidth) < 5 ? 'good' : Math.abs(results.predictions.hardwoods.diffFlexWidth) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.hardwoods.diffFlexWidth > 0 ? '+' : ''}{results.predictions.hardwoods.diffFlexWidth.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const WedgeTest = () => {
+  const [inputs, setInputs] = useState({
+    length: 420,
+    width: 129,
+    thicknessMin: 8,
+    thicknessMax: 23,
+    mass: 319,
+    freqLongitudinal: 545,
+    freqRadial: 1760
+  });
+
+  const [results, setResults] = useState(null);
+  const [showGuide, setShowGuide] = useState(false);
+
+  const calculate = () => {
+    const L = inputs.length / 1000;
+    const l = inputs.width / 1000;
+    const h1 = inputs.thicknessMin / 1000;
+    const h2 = inputs.thicknessMax / 1000;
+    const m = inputs.mass / 1000;
+    const f_L = inputs.freqLongitudinal;
+    const f_R = inputs.freqRadial;
+
+    // Constants
+    const nu = 0.3;
+    const knL_flex = 4.73;
+    const knL_flex_radial = 8.02;
+
+    // Calculated values
+    const h_avg = (h1 + h2) / 2;
+    const area_L = h1 * l + (h1 * (h2 - h1) / 2);
+    const area_R = L * h_avg;
+    const volume = area_L * L;
+    const density = m / volume;
+    const SMA_L = (l * h_avg * h_avg * h_avg) / 12;
+    const SMA_R = (L * h_avg * h_avg * h_avg * h_avg) / 12;
+
+    // Pulsation and wavenumber
+    const omega_L = 2 * Math.PI * f_L;
+    const k_L = (2 * Math.PI / knL_flex) * f_L * L;
+    const celerity_wavenumber_L = omega_L / k_L;
+
+    const omega_R = 2 * Math.PI * f_R;
+    const k_R = (2 * Math.PI / knL_flex_radial) * f_R * l;
+    const celerity_wavenumber_R = omega_R / k_R;
+
+    // Rigidity calculations
+    const E_L = (Math.pow(celerity_wavenumber_L, 4) * density * area_L) / (SMA_L * 4 * Math.PI * Math.PI * f_L * f_L) / 1000000000;
+    const specificRigidity_L = E_L / (density / 1000);
+
+    const E_R = (f_R * f_R * density * l * l * l * l * L * h_avg * Math.PI * Math.PI) / (SMA_R * knL_flex_radial * knL_flex_radial * knL_flex_radial * knL_flex_radial) / 1000000000;
+    const specificRigidity_R = E_R / (density / 1000);
+
+    // Predicted frequencies using Guitard model
+    const sg = density / 1000;
+
+    // Softwoods
+    const EL_soft = 9.843559;
+    const ER_soft = 0.614213;
+    const freq_L_soft = Math.sqrt((EL_soft * 1000 * SMA_L * Math.PI * Math.PI * knL_flex * knL_flex) / (density * L * L * L * L * area_L));
+    const freq_R_soft = Math.sqrt((ER_soft * 1000 * SMA_R * knL_flex_radial * knL_flex_radial * knL_flex_radial * knL_flex_radial) / (density * l * l * l * l * L * h_avg * Math.PI * Math.PI));
+
+    // Hardwoods
+    const EL_hard = 8.49998;
+    const ER_hard = 0.847579;
+    const freq_L_hard = Math.sqrt((EL_hard * 1000 * SMA_L * Math.PI * Math.PI * knL_flex * knL_flex) / (density * L * L * L * L * area_L));
+    const freq_R_hard = Math.sqrt((ER_hard * 1000 * SMA_R * knL_flex_radial * knL_flex_radial * knL_flex_radial * knL_flex_radial) / (density * l * l * l * l * L * h_avg * Math.PI * Math.PI));
+
+    setResults({
+      density,
+      E_L,
+      E_R,
+      specificRigidity_L,
+      specificRigidity_R,
+      h_avg,
+      predictions: {
+        softwoods: {
+          freqLongitudinal: freq_L_soft,
+          freqRadial: freq_R_soft,
+          diffLongitudinal: ((f_L - freq_L_soft) / freq_L_soft * 100),
+          diffRadial: ((f_R - freq_R_soft) / freq_R_soft * 100)
+        },
+        hardwoods: {
+          freqLongitudinal: freq_L_hard,
+          freqRadial: freq_R_hard,
+          diffLongitudinal: ((f_L - freq_L_hard) / freq_L_hard * 100),
+          diffRadial: ((f_R - freq_R_hard) / freq_R_hard * 100)
+        }
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Measurement Guide */}
+      <div className="measurement-guide">
+        <button 
+          className="guide-toggle"
+          onClick={() => setShowGuide(!showGuide)}
+        >
+          <span>📐 How to Measure These Frequencies</span>
+          <span className="toggle-icon">{showGuide ? '▼' : '▶'}</span>
+        </button>
+        
+        {showGuide && (
+          <div className="guide-content">
+            <div className="guide-section">
+              <h4>Setup for Quarter-Cut Tonewood</h4>
+              <p>Wedge-shaped samples are typical for violin family instruments. The grain runs parallel to the length (quarter-sawn). Support at nodal points using soft foam or strings.</p>
+            </div>
+
+            <div className="guide-diagrams">
+              {/* Longitudinal Mode */}
+              <div className="diagram-card">
+                <h5>Longitudinal Mode</h5>
+                <svg viewBox="0 0 300 140" className="mode-diagram">
+                  {/* Wedge shape */}
+                  <path d="M 50 90 L 250 50 L 250 90 Z" fill="#d4c4a8" stroke="#8b7355" strokeWidth="2"/>
+                  {/* Grain lines */}
+                  <line x1="70" y1="85" x2="250" y2="60" stroke="#9b8670" strokeWidth="0.5" opacity="0.4"/>
+                  <line x1="90" y1="82" x2="250" y2="65" stroke="#9b8670" strokeWidth="0.5" opacity="0.4"/>
+                  <line x1="110" y1="79" x2="250" y2="70" stroke="#9b8670" strokeWidth="0.5" opacity="0.4"/>
+                  {/* Support points */}
+                  <circle cx="95" cy="81" r="5" fill="#6b5a45"/>
+                  <circle cx="205" cy="63" r="5" fill="#6b5a45"/>
+                  <text x="95" y="105" fontSize="10" textAnchor="middle" fill="#5a4a35">Support</text>
+                  <text x="205" y="50" fontSize="10" textAnchor="middle" fill="#5a4a35">Support</text>
+                  {/* Tap point */}
+                  <path d="M 150 15 L 150 62" stroke="#c44" strokeWidth="3" markerEnd="url(#arrowwedge1)"/>
+                  <text x="150" y="12" fontSize="12" fontWeight="bold" textAnchor="middle" fill="#c44">TAP</text>
+                  {/* Bending curve */}
+                  <path d="M 50 90 Q 110 65, 150 68 T 250 70" fill="none" stroke="#4a90e2" strokeWidth="2" strokeDasharray="4,4" opacity="0.6"/>
+                  <defs>
+                    <marker id="arrowwedge1" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto">
+                      <path d="M0,0 L0,6 L9,3 z" fill="#c44" />
+                    </marker>
+                  </defs>
+                </svg>
+                <div className="diagram-notes">
+                  <p><strong>What to do:</strong> Support across width at 22% from each end, tap center along length</p>
+                  <p><strong>Expected range:</strong> 400-800 Hz (depends on wood type and dimensions)</p>
+                  <p><strong>In Audacity:</strong> Look for <em>lower of the two main peaks</em></p>
+                </div>
+              </div>
+
+              {/* Radial Mode */}
+              <div className="diagram-card">
+                <h5>Radial Mode</h5>
+                <svg viewBox="0 0 300 140" className="mode-diagram">
+                  {/* Wedge shape - top view showing width */}
+                  <path d="M 50 90 L 250 50 L 250 90 Z" fill="#d4c4a8" stroke="#8b7355" strokeWidth="2"/>
+                  {/* Support points along length */}
+                  <circle cx="100" cy="80" r="5" fill="#6b5a45"/>
+                  <circle cx="200" cy="60" r="5" fill="#6b5a45"/>
+                  <text x="85" y="95" fontSize="10" fill="#5a4a35">Support</text>
+                  <text x="185" y="75" fontSize="10" fill="#5a4a35">Support</text>
+                  {/* Tap point */}
+                  <path d="M 150 15 L 150 62" stroke="#c44" strokeWidth="3" markerEnd="url(#arrowwedge2)"/>
+                  <text x="150" y="12" fontSize="12" fontWeight="bold" textAnchor="middle" fill="#c44">TAP</text>
+                  <text x="150" y="25" fontSize="9" textAnchor="middle" fill="#c44">center</text>
+                  {/* Bending indication */}
+                  <path d="M 120 70 Q 150 50, 180 65" fill="none" stroke="#4a90e2" strokeWidth="2" strokeDasharray="4,4" opacity="0.6"/>
+                  <defs>
+                    <marker id="arrowwedge2" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto">
+                      <path d="M0,0 L0,6 L9,3 z" fill="#c44" />
+                    </marker>
+                  </defs>
+                </svg>
+                <div className="diagram-notes">
+                  <p><strong>What to do:</strong> Support along length at nodal points, tap center across width</p>
+                  <p><strong>Expected range:</strong> 1200-2500 Hz (much higher than longitudinal)</p>
+                  <p><strong>In Audacity:</strong> Look for <em>higher, sharper peak</em></p>
+                </div>
+              </div>
+            </div>
+
+            <div className="guide-tips">
+              <p><strong>💡 Tips for Wedge Samples:</strong></p>
+              <ul>
+                <li>The grain should run parallel to the length (quarter-sawn wood)</li>
+                <li>Radial mode is across the grain, so it's much stiffer (higher frequency)</li>
+                <li>Make sure the wedge is free at all edges - no contact except at support points</li>
+                <li>These measurements are critical for violin/viola/cello tonewood selection</li>
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="input-section">
+        <h3 className="section-title">Wedge Dimensions</h3>
+        <div className="input-grid">
+          <div className="input-group">
+            <label>Length (mm)</label>
+            <input
+              type="number"
+              value={inputs.length}
+              onChange={(e) => setInputs({...inputs, length: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="input-group">
+            <label>Width (mm)</label>
+            <input
+              type="number"
+              value={inputs.width}
+              onChange={(e) => setInputs({...inputs, width: parseFloat(e.target.value)})}
+            />
+          </div>
+          <div className="input-group">
+            <label>Min Thickness (mm)</label>
+            <input
+              type="number"
+              value={inputs.thicknessMin}
+              onChange={(e) => setInputs({...inputs, thicknessMin: parseFloat(e.target.value)})}
+            />
+            <span className="hint">Thinnest edge</span>
+          </div>
+          <div className="input-group">
+            <label>Max Thickness (mm)</label>
+            <input
+              type="number"
+              value={inputs.thicknessMax}
+              onChange={(e) => setInputs({...inputs, thicknessMax: parseFloat(e.target.value)})}
+            />
+            <span className="hint">Thickest edge</span>
+          </div>
+          <div className="input-group">
+            <label>Mass (g)</label>
+            <input
+              type="number"
+              value={inputs.mass}
+              onChange={(e) => setInputs({...inputs, mass: parseFloat(e.target.value)})}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="input-section">
+        <h3 className="section-title">Measured Frequencies</h3>
+        <div className="input-grid">
+          <div className="input-group">
+            <label>Longitudinal Mode (Hz)</label>
+            <input
+              type="number"
+              value={inputs.freqLongitudinal}
+              onChange={(e) => setInputs({...inputs, freqLongitudinal: parseFloat(e.target.value)})}
+            />
+            <span className="hint">Flexure along length, free-free</span>
+          </div>
+          <div className="input-group">
+            <label>Radial Mode (Hz)</label>
+            <input
+              type="number"
+              value={inputs.freqRadial}
+              onChange={(e) => setInputs({...inputs, freqRadial: parseFloat(e.target.value)})}
+            />
+            <span className="hint">Flexure across width, free-free</span>
+          </div>
+        </div>
+      </div>
+
+      <button className="calculate-btn" onClick={calculate}>
+        Calculate Properties
+      </button>
+
+      {results && (
+        <div className="results-section">
+          <h3 className="section-title">Material Properties</h3>
+          
+          <div className="property-cards">
+            <div className="property-card highlight">
+              <div className="property-label">Specific Rigidity (Longitudinal)</div>
+              <div className="property-value">{results.specificRigidity_L.toFixed(1)}</div>
+              <div className="property-unit">GPa·m³/kg</div>
+            </div>
+            
+            <div className="property-card highlight">
+              <div className="property-label">Specific Rigidity (Radial)</div>
+              <div className="property-value">{results.specificRigidity_R.toFixed(1)}</div>
+              <div className="property-unit">GPa·m³/kg</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">E Longitudinal</div>
+              <div className="property-value">{results.E_L.toFixed(2)}</div>
+              <div className="property-unit">GPa</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">E Radial</div>
+              <div className="property-value">{results.E_R.toFixed(2)}</div>
+              <div className="property-unit">GPa</div>
+            </div>
+            
+            <div className="property-card">
+              <div className="property-label">Density</div>
+              <div className="property-value">{results.density.toFixed(0)}</div>
+              <div className="property-unit">kg/m³</div>
+            </div>
+          </div>
+
+          <h3 className="section-title" style={{marginTop: '2rem'}}>How Does Your Wood Compare?</h3>
+          
+          <div className="comparison-grid">
+            <div className="comparison-card">
+              <h4>If it were typical Softwood</h4>
+              <div className="freq-comparison">
+                <div className="freq-row">
+                  <span className="freq-label">Longitudinal:</span>
+                  <span className="freq-predicted">{results.predictions.softwoods.freqLongitudinal.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqLongitudinal} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.softwoods.diffLongitudinal) < 5 ? 'good' : Math.abs(results.predictions.softwoods.diffLongitudinal) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.softwoods.diffLongitudinal > 0 ? '+' : ''}{results.predictions.softwoods.diffLongitudinal.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="freq-row">
+                  <span className="freq-label">Radial:</span>
+                  <span className="freq-predicted">{results.predictions.softwoods.freqRadial.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqRadial} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.softwoods.diffRadial) < 5 ? 'good' : Math.abs(results.predictions.softwoods.diffRadial) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.softwoods.diffRadial > 0 ? '+' : ''}{results.predictions.softwoods.diffRadial.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="comparison-card">
+              <h4>If it were typical Hardwood</h4>
+              <div className="freq-comparison">
+                <div className="freq-row">
+                  <span className="freq-label">Longitudinal:</span>
+                  <span className="freq-predicted">{results.predictions.hardwoods.freqLongitudinal.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqLongitudinal} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.hardwoods.diffLongitudinal) < 5 ? 'good' : Math.abs(results.predictions.hardwoods.diffLongitudinal) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.hardwoods.diffLongitudinal > 0 ? '+' : ''}{results.predictions.hardwoods.diffLongitudinal.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="freq-row">
+                  <span className="freq-label">Radial:</span>
+                  <span className="freq-predicted">{results.predictions.hardwoods.freqRadial.toFixed(0)} Hz</span>
+                  <span className="freq-measured">({inputs.freqRadial} Hz)</span>
+                  <span className={`freq-diff ${Math.abs(results.predictions.hardwoods.diffRadial) < 5 ? 'good' : Math.abs(results.predictions.hardwoods.diffRadial) < 15 ? 'ok' : 'different'}`}>
+                    {results.predictions.hardwoods.diffRadial > 0 ? '+' : ''}{results.predictions.hardwoods.diffRadial.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default function MaterialCharacterization() {
+  const [activeTab, setActiveTab] = useState('beam');
+
+  return (
+    <div className="app-container">
+      <header className="app-header">
+        <h1>Wood Material Characterization</h1>
+        <p className="subtitle">Understanding your tonewood through vibration testing</p>
+      </header>
+
+      <div className="tabs">
+        <button
+          className={`tab ${activeTab === 'beam' ? 'active' : ''}`}
+          onClick={() => setActiveTab('beam')}
+        >
+          <BarChart3 size={18} />
+          <span>Beam Test</span>
+        </button>
+        <button
+          className={`tab ${activeTab === 'plate' ? 'active' : ''}`}
+          onClick={() => setActiveTab('plate')}
+        >
+          <Waves size={18} />
+          <span>Plate Test</span>
+        </button>
+        <button
+          className={`tab ${activeTab === 'wedge' ? 'active' : ''}`}
+          onClick={() => setActiveTab('wedge')}
+        >
+          <Triangle size={18} />
+          <span>Wedge Test</span>
+        </button>
+      </div>
+
+      <div className="tab-content">
+        {activeTab === 'beam' && <BeamTest />}
+        {activeTab === 'plate' && <PlateTest />}
+        {activeTab === 'wedge' && <WedgeTest />}
+      </div>
+
+      <style jsx>{`
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+
+        .app-container {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #faf8f3 0%, #f5f0e8 100%);
+          padding: 2rem;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        .app-header {
+          text-align: center;
+          margin-bottom: 3rem;
+          padding-bottom: 2rem;
+          border-bottom: 2px solid #d4c4a8;
+        }
+
+        .app-header h1 {
+          font-size: 2.5rem;
+          font-weight: 700;
+          color: #3d2f1f;
+          margin-bottom: 0.5rem;
+          letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+          font-size: 1.1rem;
+          color: #8b7355;
+          font-weight: 400;
+        }
+
+        .tabs {
+          display: flex;
+          gap: 1rem;
+          max-width: 800px;
+          margin: 0 auto 2rem;
+          background: white;
+          padding: 0.5rem;
+          border-radius: 12px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .tab {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          padding: 1rem;
+          border: none;
+          background: transparent;
+          color: #6b5a45;
+          font-size: 1rem;
+          font-weight: 500;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .tab:hover {
+          background: #f9f6f0;
+          color: #3d2f1f;
+        }
+
+        .tab.active {
+          background: linear-gradient(135deg, #8b7355 0%, #6b5a45 100%);
+          color: white;
+          box-shadow: 0 4px 12px rgba(107, 90, 69, 0.2);
+        }
+
+        .tab-content {
+          max-width: 1000px;
+          margin: 0 auto;
+          background: white;
+          padding: 2.5rem;
+          border-radius: 16px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .space-y-6 > * + * {
+          margin-top: 1.5rem;
+        }
+
+        .input-section {
+          padding: 1.5rem;
+          background: #faf8f3;
+          border-radius: 12px;
+          border: 1px solid #e8e0d0;
+        }
+
+        .section-title {
+          font-size: 1.3rem;
+          font-weight: 600;
+          color: #3d2f1f;
+          margin-bottom: 1.2rem;
+          padding-bottom: 0.5rem;
+          border-bottom: 2px solid #d4c4a8;
+        }
+
+        .input-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 1.2rem;
+        }
+
+        .input-group {
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+
+        .input-group label {
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #5a4a35;
+        }
+
+        .input-group input {
+          padding: 0.75rem;
+          border: 2px solid #e0d5c0;
+          border-radius: 8px;
+          font-size: 1rem;
+          background: white;
+          transition: all 0.2s ease;
+        }
+
+        .input-group input:focus {
+          outline: none;
+          border-color: #8b7355;
+          box-shadow: 0 0 0 3px rgba(139, 115, 85, 0.1);
+        }
+
+        .hint {
+          font-size: 0.8rem;
+          color: #9b8670;
+          font-style: italic;
+        }
+
+        .measurement-guide {
+          background: #fff9ed;
+          border: 2px solid #d4c4a8;
+          border-radius: 12px;
+          overflow: hidden;
+          margin-bottom: 1.5rem;
+        }
+
+        .guide-toggle {
+          width: 100%;
+          padding: 1rem 1.5rem;
+          background: transparent;
+          border: none;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          cursor: pointer;
+          font-size: 1rem;
+          font-weight: 600;
+          color: #3d2f1f;
+          transition: background 0.2s ease;
+        }
+
+        .guide-toggle:hover {
+          background: #fff4e0;
+        }
+
+        .toggle-icon {
+          font-size: 0.9rem;
+          color: #8b7355;
+        }
+
+        .guide-content {
+          padding: 0 1.5rem 1.5rem 1.5rem;
+          animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .guide-section {
+          margin-bottom: 1.5rem;
+        }
+
+        .guide-section h4 {
+          font-size: 1.1rem;
+          font-weight: 600;
+          color: #3d2f1f;
+          margin-bottom: 0.5rem;
+        }
+
+        .guide-section p {
+          color: #5a4a35;
+          line-height: 1.6;
+        }
+
+        .guide-diagrams {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+        }
+
+        .diagram-card {
+          background: white;
+          border: 1px solid #e0d5c0;
+          border-radius: 8px;
+          padding: 1rem;
+        }
+
+        .diagram-card h5 {
+          font-size: 0.95rem;
+          font-weight: 600;
+          color: #3d2f1f;
+          margin-bottom: 0.8rem;
+          text-align: center;
+        }
+
+        .mode-diagram {
+          width: 100%;
+          height: auto;
+          margin-bottom: 0.8rem;
+        }
+
+        .diagram-notes {
+          font-size: 0.85rem;
+          color: #6b5a45;
+        }
+
+        .diagram-notes p {
+          margin: 0.4rem 0;
+          line-height: 1.5;
+        }
+
+        .diagram-notes strong {
+          color: #3d2f1f;
+        }
+
+        .guide-tips {
+          background: #faf8f3;
+          padding: 1rem;
+          border-radius: 8px;
+          border: 1px solid #e8e0d0;
+        }
+
+        .guide-tips p {
+          font-weight: 600;
+          color: #3d2f1f;
+          margin-bottom: 0.5rem;
+        }
+
+        .guide-tips ul {
+          margin: 0;
+          padding-left: 1.5rem;
+        }
+
+        .guide-tips li {
+          color: #5a4a35;
+          margin: 0.4rem 0;
+          line-height: 1.5;
+        }
+
+        .calculate-btn {
+          width: 100%;
+          padding: 1rem 2rem;
+          background: linear-gradient(135deg, #8b7355 0%, #6b5a45 100%);
+          color: white;
+          border: none;
+          border-radius: 12px;
+          font-size: 1.1rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 12px rgba(107, 90, 69, 0.2);
+        }
+
+        .calculate-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 16px rgba(107, 90, 69, 0.3);
+        }
+
+        .calculate-btn:active {
+          transform: translateY(0);
+        }
+
+        .results-section {
+          margin-top: 2rem;
+          padding-top: 2rem;
+          border-top: 2px solid #e8e0d0;
+        }
+
+        .property-cards {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 1rem;
+          margin-top: 1rem;
+        }
+
+        .property-card {
+          background: linear-gradient(135deg, #faf8f3 0%, #f5f0e8 100%);
+          padding: 1.5rem;
+          border-radius: 12px;
+          border: 2px solid #e8e0d0;
+          text-align: center;
+          transition: all 0.2s ease;
+        }
+
+        .property-card:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+        }
+
+        .property-card.highlight {
+          background: linear-gradient(135deg, #fff9ed 0%, #fff4e0 100%);
+          border: 2px solid #d4c4a8;
+          box-shadow: 0 4px 12px rgba(212, 196, 168, 0.15);
+        }
+
+        .property-label {
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: #8b7355;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin-bottom: 0.5rem;
+        }
+
+        .property-value {
+          font-size: 2.2rem;
+          font-weight: 700;
+          color: #3d2f1f;
+          margin: 0.3rem 0;
+        }
+
+        .property-unit {
+          font-size: 0.9rem;
+          color: #9b8670;
+          font-weight: 500;
+        }
+
+        .property-note {
+          font-size: 0.75rem;
+          color: #a0916b;
+          margin-top: 0.5rem;
+          font-style: italic;
+        }
+
+        .comparison-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+          gap: 1.5rem;
+          margin-top: 1.5rem;
+        }
+
+        .comparison-card {
+          background: #faf8f3;
+          padding: 1.5rem;
+          border-radius: 12px;
+          border: 2px solid #e0d5c0;
+        }
+
+        .comparison-card h4 {
+          font-size: 1.1rem;
+          font-weight: 600;
+          color: #3d2f1f;
+          margin-bottom: 1rem;
+          padding-bottom: 0.5rem;
+          border-bottom: 1px solid #d4c4a8;
+        }
+
+        .freq-comparison {
+          display: flex;
+          flex-direction: column;
+          gap: 0.8rem;
+        }
+
+        .freq-row {
+          display: grid;
+          grid-template-columns: 100px 80px 100px 80px;
+          gap: 0.5rem;
+          align-items: center;
+          font-size: 0.9rem;
+          padding: 0.6rem;
+          background: white;
+          border-radius: 8px;
+        }
+
+        .freq-label {
+          font-weight: 600;
+          color: #5a4a35;
+        }
+
+        .freq-predicted {
+          font-weight: 700;
+          color: #3d2f1f;
+          text-align: right;
+        }
+
+        .freq-measured {
+          color: #8b7355;
+          font-size: 0.85rem;
+        }
+
+        .freq-diff {
+          font-weight: 700;
+          text-align: right;
+          padding: 0.3rem 0.6rem;
+          border-radius: 6px;
+          font-size: 0.85rem;
+        }
+
+        .freq-diff.good {
+          background: #d4edda;
+          color: #155724;
+        }
+
+        .freq-diff.ok {
+          background: #fff3cd;
+          color: #856404;
+        }
+
+        .freq-diff.different {
+          background: #f8d7da;
+          color: #721c24;
+        }
+
+        @media (max-width: 768px) {
+          .app-container {
+            padding: 1rem;
+          }
+
+          .app-header h1 {
+            font-size: 1.8rem;
+          }
+
+          .tabs {
+            flex-direction: column;
+          }
+
+          .tab-content {
+            padding: 1.5rem;
+          }
+
+          .input-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .property-cards {
+            grid-template-columns: 1fr;
+          }
+
+          .comparison-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .freq-row {
+            grid-template-columns: 80px 70px 90px 70px;
+            font-size: 0.8rem;
+          }
+
+          .guide-diagrams {
+            grid-template-columns: 1fr;
+          }
+
+          .diagram-card {
+            padding: 0.8rem;
+          }
+
+          .mode-diagram {
+            max-height: 120px;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
